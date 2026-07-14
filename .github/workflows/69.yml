@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - run: Install-Module -Name Microsoft.WinGet.Client -Force
+
+      - run: winget install --id WireGuard.WireGuard --accept-source-agreements
+
+      - name: Allow scripts
+        run: Set-ExecutionPolicy Unrestricted -Scope CurrentUser -Force
+
+      - name: Install Windows Terminal
+        run: winget install --id Microsoft.WindowsTerminal --source winget --accept-source-agreements --accept-package-agreements
+
+      - name: Enable file extensions
+        run: Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" HideFileExt 0
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Extract zip directly to D drive
+        run: Expand-Archive "$env:GITHUB_WORKSPACE\pack.zip" "D:\pack" -Force
+
+      - name: Install Internet Archive CLI
+        run: pipx install internetarchive
+
+      - name: Install Free Download Manager
+        run: winget install --id XPDLMKFTXTDHSD --source msstore --accept-package-agreements --accept-source-agreements
+
+      - name: Kill Microsoft Edge
+        run: taskkill /F /IM msedge.exe /T
+
+      - name: Install OneDrive
+        run: winget install --id Microsoft.OneDrive --accept-source-agreements --accept-package-agreements
+
+      - name: Lower FDM priority
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 10
+          Get-Process | Where-Object { $_.ProcessName -like "*fdm*" } | ForEach-Object {
+          $_.PriorityClass = "Idle"
+          }
+
+      - name: Delete folders (background)
+        shell: powershell
+        run: |
+          Start-Process powershell -WindowStyle Hidden -ArgumentList "
+            `$paths = @(
+              'C:\Program Files (x86)\Android',
+              'C:\Program Files (x86)\Windows Kits',
+              'C:\Program Files (x86)\Microsoft SDKs',
+              'C:\Program Files\Microsoft Visual Studio',
+              'C:\Program Files\dotnet',
+              'C:\Program Files\LLVM',
+              'C:\Program Files\MongoDB',
+              'C:\rtools45',
+              'C:\Julia',
+              'C:\Miniconda',
+              'C:\mingw64',
+              'C:\mingw32',
+              'C:\Strawberry'
+            )
+
+            foreach (`$p in `$paths) {
+              if (Test-Path `$p) {
+                Remove-Item `$p -Recurse -Force -ErrorAction SilentlyContinue
+              }
+            }
+          "
+
+      - name: Enable TS
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+
+      - name: Set RDP Auth
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+
+      - name: Set Password
+        env:
+          PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText $env:PASSWORD -Force)
+
+      - name: Install Cloudflared
+        run: choco install cloudflared -y
+
+      - name: Create Tunnel
+        run: cloudflared tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999
