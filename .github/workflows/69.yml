@@ -99,30 +99,20 @@ jobs:
             -RedirectStandardOutput cloudflared.log `
             -RedirectStandardError cloudflared-error.log
 
-          $timeout = 60
-          $elapsed = 0
+          Start-Sleep 10
 
-          while ($elapsed -lt $timeout) {
-              Start-Sleep -Seconds 2
-              $elapsed += 2
+          $log = Get-Content cloudflared-error.log -Raw
+          Write-Host $log
 
-              if (Test-Path cloudflared-error.log) {
-                  $log = Get-Content cloudflared-error.log -Raw
-                  Write-Host $log
-
-                  if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
-                      $url = $matches[0]
-                      echo "Tunnel URL: $url"
-
-                      "TUNNEL_URL=$url" >> $env:GITHUB_ENV
-                      exit 0
-                  }
-              }
+          if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+              $url = $matches[0]
+              Write-Host "Tunnel URL: $url"
           }
 
-          Write-Error "Tunnel URL not found"
-          Get-Content cloudflared-error.log
-          exit 1
+          # Keep runner alive
+          while ($true) {
+              Start-Sleep -Seconds 60
+          }
 
       - name: Show Tunnel URL
         run: echo $env:TUNNEL_URL
