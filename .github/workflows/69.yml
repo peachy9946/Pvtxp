@@ -99,20 +99,42 @@ jobs:
             -RedirectStandardOutput cloudflared.log `
             -RedirectStandardError cloudflared-error.log
 
-          Start-Sleep 10
+          # Poll for up to 60 seconds until Cloudflare generates the URL
+          $timeout = 60
+          $elapsed = 0
+          $urlFound = $false
 
-          $log = Get-Content cloudflared-error.log -Raw
-          Write-Host $log
+          while ($elapsed -lt $timeout) {
+            Start-Sleep -Seconds 2
+            $elapsed += 2
 
-          if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
-              $url = $matches[0]
-              Write-Host "Tunnel URL: $url"
+            if (Test-Path cloudflared-error.log) {
+              $log = Get-Content cloudflared-error.log -Raw
+              if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+                $url = $matches[0]
+                Write-Host "Found Tunnel URL: $url"
+
+                # Export to GITHUB_ENV so future steps can access $env:TUNNEL_URL
+                "TUNNEL_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                $urlFound = $true
+                break
+              }
+            }
           }
 
-          # Keep runner alive
-          while ($true) {
-              Start-Sleep -Seconds 60
+          if (-not $urlFound) {
+            Write-Error "Cloudflare tunnel failed to generate a URL within $timeout seconds."
+            if (Test-Path cloudflared-error.log) { Get-Content cloudflared-error.log }
+            exit 1
           }
 
       - name: Show Tunnel URL
         run: echo $env:TUNNEL_URL
+
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          Write-Host "RDP Tunnel is live! Keeping job active..."
+          while ($true) {
+            Start-Sleep -Seconds 60
+          }
