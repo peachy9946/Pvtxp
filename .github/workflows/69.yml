@@ -24,4 +24,48 @@ jobs:
         PASSWORD: ${{ secrets.PASSWORD }}
     - run: choco install cloudflared
     - name: Create Tunnel
-      run: cloudflared tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999
+        shell: powershell
+        run: |
+          # 1. Launch cloudflared in the background so it doesn't block GitHub Actions
+          Start-Process cloudflared `
+            -ArgumentList "tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999" `
+            -RedirectStandardError cloudflared-error.log `
+            -RedirectStandardOutput cloudflared.log
+
+          Write-Host "Waiting for Cloudflare Tunnel URL..."
+          $timeout = 45
+          $elapsed = 0
+          $found = $false
+
+          # 2. Poll the error log file until the URL appears
+          while ($elapsed -lt $timeout) {
+            Start-Sleep -Seconds 3
+            $elapsed += 3
+
+            if (Test-Path cloudflared-error.log) {
+              $log = Get-Content cloudflared-error.log -Raw
+              if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+                $url = $matches[0]
+                Write-Host "============================================="
+                Write-Host "SUCCESS! Tunnel URL: $url"
+                Write-Host "============================================="
+                $found = $true
+                break
+              }
+            }
+          }
+
+          # 3. If it fails or times out, print the logs to diagnose
+          if (-not $found) {
+            Write-Error "Failed to retrieve Tunnel URL within $timeout seconds."
+            if (Test-Path cloudflared-error.log) { Get-Content cloudflared-error.log }
+            exit 1
+          }
+
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          Write-Host "Runner active. Press Cancel on GitHub to terminate."
+          while ($true) {
+            Start-Sleep -Seconds 60
+          }
