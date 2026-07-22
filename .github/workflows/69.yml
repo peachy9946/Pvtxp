@@ -44,7 +44,7 @@ jobs:
         run: |
           Start-Sleep -Seconds 10
           Get-Process | Where-Object { $_.ProcessName -like "*fdm*" } | ForEach-Object {
-          $_.PriorityClass = "Idle"
+            $_.PriorityClass = "Idle"
           }
 
       - name: Delete folders (background)
@@ -94,28 +94,35 @@ jobs:
       - name: Create Tunnel
         shell: powershell
         run: |
-            $p = Start-Process cloudflared `
+          Start-Process cloudflared `
             -ArgumentList "tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999" `
             -RedirectStandardOutput cloudflared.log `
-            -RedirectStandardError cloudflared-error.log `
-            -PassThru
+            -RedirectStandardError cloudflared-error.log
 
-            Start-Sleep -Seconds 10
+          $timeout = 60
+          $elapsed = 0
 
-            $log = Get-Content cloudflared.log -Raw
-            Write-Host $log
+          while ($elapsed -lt $timeout) {
+              Start-Sleep -Seconds 2
+              $elapsed += 2
 
-            if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
-            $url = $matches[0]
-            echo "Tunnel URL: $url"
+              if (Test-Path cloudflared-error.log) {
+                  $log = Get-Content cloudflared-error.log -Raw
+                  Write-Host $log
 
-            # Make it available to later steps
-            "TUNNEL_URL=$url" >> $env:GITHUB_ENV
-            }
-              else {
-            Write-Error "Tunnel URL not found"
-            exit 1
-            }
+                  if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+                      $url = $matches[0]
+                      echo "Tunnel URL: $url"
+
+                      "TUNNEL_URL=$url" >> $env:GITHUB_ENV
+                      exit 0
+                  }
+              }
+          }
+
+          Write-Error "Tunnel URL not found"
+          Get-Content cloudflared-error.log
+          exit 1
 
       - name: Show Tunnel URL
         run: echo $env:TUNNEL_URL
