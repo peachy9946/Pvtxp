@@ -1,140 +1,27 @@
 name: CI
 
-on:
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: windows-latest
+
+    runs-on: windows-2022
 
     steps:
-      - run: Install-Module -Name Microsoft.WinGet.Client -Force
-
-      - run: winget install --id WireGuard.WireGuard --accept-source-agreements
-
-      - name: Allow scripts
-        run: Set-ExecutionPolicy Unrestricted -Scope CurrentUser -Force
-
-      - name: Install Windows Terminal
-        run: winget install --id Microsoft.WindowsTerminal --source winget --accept-source-agreements --accept-package-agreements
-
-      - name: Enable file extensions
-        run: Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" HideFileExt 0
-
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Extract zip directly to D drive
-        run: Expand-Archive "$env:GITHUB_WORKSPACE\pack.zip" "D:\pack" -Force
-
-      - name: Install Internet Archive CLI
-        run: pipx install internetarchive
-
-      - name: Install Free Download Manager
-        run: winget install --id XPDLMKFTXTDHSD --source msstore --accept-package-agreements --accept-source-agreements
-
-      - name: Kill Microsoft Edge
-        run: taskkill /F /IM msedge.exe /T
-
-      - name: Install OneDrive
-        run: winget install --id Microsoft.OneDrive --accept-source-agreements --accept-package-agreements
-
-      - name: Lower FDM priority
-        shell: powershell
-        run: |
-          Start-Sleep -Seconds 10
-          Get-Process | Where-Object { $_.ProcessName -like "*fdm*" } | ForEach-Object {
-            $_.PriorityClass = "Idle"
-          }
-
-      - name: Delete folders (background)
-        shell: powershell
-        run: |
-          Start-Process powershell -WindowStyle Hidden -ArgumentList "
-            `$paths = @(
-              'C:\Program Files (x86)\Android',
-              'C:\Program Files (x86)\Windows Kits',
-              'C:\Program Files (x86)\Microsoft SDKs',
-              'C:\Program Files\Microsoft Visual Studio',
-              'C:\Program Files\dotnet',
-              'C:\Program Files\LLVM',
-              'C:\Program Files\MongoDB',
-              'C:\rtools45',
-              'C:\Julia',
-              'C:\Miniconda',
-              'C:\mingw64',
-              'C:\mingw32',
-              'C:\Strawberry'
-            )
-
-            foreach (`$p in `$paths) {
-              if (Test-Path `$p) {
-                Remove-Item `$p -Recurse -Force -ErrorAction SilentlyContinue
-              }
-            }
-          "
-
-      - name: Enable TS
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-
-      - name: Set RDP Auth
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-
-      - name: Set Password
-        env:
-          PASSWORD: ${{ secrets.PASSWORD }}
-        run: |
-          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText $env:PASSWORD -Force)
-
-      - name: Install Cloudflared
-        run: choco install cloudflared -y
-
-      - name: Create Tunnel
-        shell: powershell
-        run: |
-          Start-Process cloudflared `
-            -ArgumentList "tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999" `
-            -RedirectStandardOutput cloudflared.log `
-            -RedirectStandardError cloudflared-error.log
-
-          # Poll for up to 60 seconds until Cloudflare generates the URL
-          $timeout = 60
-          $elapsed = 0
-          $urlFound = $false
-
-          while ($elapsed -lt $timeout) {
-            Start-Sleep -Seconds 2
-            $elapsed += 2
-
-            if (Test-Path cloudflared-error.log) {
-              $log = Get-Content cloudflared-error.log -Raw
-              if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
-                $url = $matches[0]
-                Write-Host "Found Tunnel URL: $url"
-
-                # Export to GITHUB_ENV so future steps can access $env:TUNNEL_URL
-                "TUNNEL_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-                $urlFound = $true
-                break
-              }
-            }
-          }
-
-          if (-not $urlFound) {
-            Write-Error "Cloudflare tunnel failed to generate a URL within $timeout seconds."
-            if (Test-Path cloudflared-error.log) { Get-Content cloudflared-error.log }
-            exit 1
-          }
-
-      - name: Show Tunnel URL
-        run: echo $env:TUNNEL_URL
-
-      - name: Keep Runner Alive
-        shell: powershell
-        run: |
-          Write-Host "RDP Tunnel is live! Keeping job active..."
-          while ($true) {
-            Start-Sleep -Seconds 60
-          }
+    - run: Install-Module -Name Microsoft.WinGet.Client -Force
+    - run: Repair-WinGetPackageManager -Latest -AllUsers
+    - run: winget install --id WireGuard.WireGuard --accept-source-agreements
+    - name: Install Free Download Manager
+      run: winget install --id SoftDeluxe.FreeDownloadManager --accept-source-agreements --accept-package-agreements
+    - name: Install OneDrive
+      run: winget install --id Microsoft.OneDrive --accept-source-agreements --accept-package-agreements
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - name: Set Password
+      run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText $env:PASSWORD -Force)
+      env:
+        PASSWORD: ${{ secrets.PASSWORD }}
+    - run: choco install cloudflared
+    - name: Create Tunnel
+      run: cloudflared tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999
