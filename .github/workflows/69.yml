@@ -92,4 +92,30 @@ jobs:
         run: choco install cloudflared -y
 
       - name: Create Tunnel
-        run: cloudflared tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999
+        shell: powershell
+        run: |
+            $p = Start-Process cloudflared `
+            -ArgumentList "tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999" `
+            -RedirectStandardOutput cloudflared.log `
+            -RedirectStandardError cloudflared-error.log `
+            -PassThru
+
+            Start-Sleep -Seconds 10
+
+            $log = Get-Content cloudflared.log -Raw
+            Write-Host $log
+
+            if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+            $url = $matches[0]
+            echo "Tunnel URL: $url"
+
+            # Make it available to later steps
+            "TUNNEL_URL=$url" >> $env:GITHUB_ENV
+          }
+            else {
+          Write-Error "Tunnel URL not found"
+          exit 1
+          }
+
+      - name: Show Tunnel URL
+        run: echo $env:TUNNEL_URL
