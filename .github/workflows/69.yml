@@ -111,11 +111,11 @@ jobs:
 
             # Make it available to later steps
             "TUNNEL_URL=$url" >> $env:GITHUB_ENV
-          }
-            else {
-          Write-Error "Tunnel URL not found"
-          exit 1
-          }
+            }
+              else {
+            Write-Error "Tunnel URL not found"
+            exit 1
+            }
 
       - name: Show Tunnel URL
         run: echo $env:TUNNEL_URL
