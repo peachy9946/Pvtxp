@@ -93,10 +93,10 @@ jobs:
       - name: Install Cloudflared
         run: choco install cloudflared -y
 
-      - name: Create Tunnel
+      - name: Create and Maintain Tunnel
         shell: powershell
         run: |
-          # 1. Start cloudflared as a background process so standard execution doesn't block
+          # 1. Start cloudflared as a background process inside this step
           Start-Process cloudflared `
             -ArgumentList "tunnel --url tcp://localhost:3389 --protocol http2 --loglevel info --retries 999" `
             -RedirectStandardOutput cloudflared.log `
@@ -107,7 +107,7 @@ jobs:
           $elapsed = 0
           $urlFound = $false
 
-          # 2. Poll the output error logs for the generated URL
+          # 2. Poll log file for the URL
           while ($elapsed -lt $timeout) {
             Start-Sleep -Seconds 2
             $elapsed += 2
@@ -116,33 +116,24 @@ jobs:
               $log = Get-Content cloudflared-error.log -Raw
               if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
                 $url = $matches[0]
-                
-                # Write to GITHUB_ENV so subsequent steps can access $env:TUNNEL_URL
-                "TUNNEL_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                Write-Host "=========================================================="
+                Write-Host "TUNNEL CREATED SUCCESSFULLY: $url"
+                Write-Host "=========================================================="
                 $urlFound = $true
                 break
               }
             }
           }
 
-          # 3. Fail fast with log dump if URL is not found
+          # 3. Fail fast if no URL found
           if (-not $urlFound) {
-            Write-Error "Failed to locate Tunnel URL within $timeout seconds."
+            Write-Error "Failed to retrieve Tunnel URL within $timeout seconds."
             if (Test-Path cloudflared-error.log) { Get-Content cloudflared-error.log }
             exit 1
           }
 
-      - name: Show Tunnel URL
-        run: |
-          echo "=========================================================="
-          echo "TUNNEL CREATED SUCCESSFULLY: $env:TUNNEL_URL"
-          echo "=========================================================="
-
-      - name: Keep Runner Alive
-        shell: powershell
-        run: |
-          Write-Host "RDP Server is active and listening."
-          Write-Host "Cancel this job in GitHub Actions to shut down the runner."
+          # 4. Keep this exact step open so GitHub runner does not kill child processes
+          Write-Host "RDP Tunnel is live! Keeping job active..."
           while ($true) {
             Start-Sleep -Seconds 60
           }
